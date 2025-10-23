@@ -19,20 +19,20 @@ build: build-all ## Alias for build-all
 ## Run Commands
 run-auth: ## Run auth service
 	@echo "Running auth service on :8081..."
-	cd internal/service/auth && go run ./cmd/main.go serve
+	@set APP_SERVER_PORT=8081&& go run ./internal/service/auth/cmd serve
 
 run-product: ## Run product service
 	@echo "Running product service on :8082..."
-	cd internal/service/product && go run ./cmd/main.go serve
+	@set APP_SERVER_PORT=8082&& go run ./internal/service/product/cmd serve
 
 ## Migration Commands
 migrate-auth: ## Run auth service migrations
 	@echo "Running auth migrations..."
-	cd internal/service/auth && go run ./cmd/main.go migrate
+	@set APP_SERVER_PORT=8081&& go run ./internal/service/auth/cmd migrate
 
 migrate-product: ## Run product service migrations
 	@echo "Running product migrations..."
-	cd internal/service/product && go run ./cmd/main.go migrate
+	@set APP_SERVER_PORT=8082&& go run ./internal/service/product/cmd migrate
 
 migrate-all: migrate-auth migrate-product ## Run all service migrations
 
