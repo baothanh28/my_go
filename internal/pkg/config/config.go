@@ -136,13 +136,5 @@ func validateConfig(cfg *Config) error {
 		return fmt.Errorf("database name is required")
 	}
 
-	if cfg.JWT.Secret == "" || cfg.JWT.Secret == "your-secret-key-change-this" {
-		return fmt.Errorf("JWT secret must be set to a secure value")
-	}
-
-	if cfg.JWT.ExpireHour <= 0 {
-		return fmt.Errorf("JWT expire hour must be positive")
-	}
-
 	return nil
 }

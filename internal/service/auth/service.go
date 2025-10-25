@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"myapp/internal/pkg/config"
-	"myapp/internal/pkg/database"
 	"myapp/internal/pkg/logger"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -16,15 +15,15 @@ import (
 
 // AuthService handles authentication business logic
 type AuthService struct {
-	db     *database.Database
+	repo   *AuthRepository
 	config *config.Config
 	logger *logger.Logger
 }
 
 // NewAuthService creates a new auth service
-func NewAuthService(db *database.Database, cfg *config.Config, log *logger.Logger) *AuthService {
+func NewAuthService(repo *AuthRepository, cfg *config.Config, log *logger.Logger) *AuthService {
 	return &AuthService{
-		db:     db,
+		repo:   repo,
 		config: cfg,
 		logger: log,
 	}
@@ -33,13 +32,12 @@ func NewAuthService(db *database.Database, cfg *config.Config, log *logger.Logge
 // Register creates a new user account
 func (s *AuthService) Register(dto RegisterDTO) (*User, error) {
 	// Check if user already exists
-	var existingUser User
-	err := s.db.Where("email = ?", dto.Email).First(&existingUser).Error
-	if err == nil {
-		return nil, errors.New("user with this email already exists")
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
+	exists, err := s.repo.ExistsByEmail(dto.Email)
+	if err != nil {
 		return nil, fmt.Errorf("failed to check existing user: %w", err)
+	}
+	if exists {
+		return nil, errors.New("user with this email already exists")
 	}
 
 	// Hash password
@@ -56,7 +54,7 @@ func (s *AuthService) Register(dto RegisterDTO) (*User, error) {
 		Role:     "user",
 	}
 
-	if err := s.db.Create(&user).Error; err != nil {
+	if err := s.repo.Create(&user); err != nil {
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
@@ -66,8 +64,7 @@ func (s *AuthService) Register(dto RegisterDTO) (*User, error) {
 // Login authenticates a user and returns a JWT token
 func (s *AuthService) Login(dto LoginDTO) (*TokenResponse, error) {
 	// Find user by email
-	var user User
-	err := s.db.Where("email = ?", dto.Email).First(&user).Error
+	user, err := s.repo.GetByEmail(dto.Email)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("invalid credentials")
@@ -82,7 +79,7 @@ func (s *AuthService) Login(dto LoginDTO) (*TokenResponse, error) {
 	}
 
 	// Generate JWT token
-	token, expiresAt, err := s.GenerateToken(&user)
+	token, expiresAt, err := s.GenerateToken(user)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate token: %w", err)
 	}
@@ -151,13 +148,12 @@ func (s *AuthService) ValidateToken(tokenString string) (*UserContext, error) {
 
 // GetUserByID retrieves a user by ID
 func (s *AuthService) GetUserByID(id uint) (*User, error) {
-	var user User
-	err := s.db.First(&user, id).Error
+	user, err := s.repo.GetByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("user not found")
 		}
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
-	return &user, nil
+	return user, nil
 }

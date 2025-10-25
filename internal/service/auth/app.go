@@ -19,6 +19,7 @@ var AuthApp = fx.Options(
 
 	// Auth service components
 	fx.Provide(
+		NewAuthRepository,
 		NewAuthService,
 		NewAuthHandler,
 	),
@@ -28,7 +29,7 @@ var AuthApp = fx.Options(
 )
 
 // registerAuthRoutes registers auth routes on the Echo server
-func registerAuthRoutes(srv *server.Server, handler *AuthHandler, authService *AuthService) {
+func registerAuthRoutes(srv *server.Server, handler *AuthHandler) {
 	e := srv.GetEcho()
-	RegisterAuthRoutes(e, handler, authService)
+	RegisterAuthRoutes(e, handler)
 }

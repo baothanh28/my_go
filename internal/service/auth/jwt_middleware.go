@@ -15,7 +15,7 @@ const (
 )
 
 // JWTMiddleware creates a JWT authentication middleware
-func JWTMiddleware(authService *AuthService) echo.MiddlewareFunc {
+func JWTMiddleware(handler *AuthHandler) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			// Extract token from Authorization header
@@ -32,8 +32,8 @@ func JWTMiddleware(authService *AuthService) echo.MiddlewareFunc {
 
 			tokenString := parts[1]
 
-			// Validate token
-			userContext, err := authService.ValidateToken(tokenString)
+			// Validate token via handler's service
+			userContext, err := handler.service.ValidateToken(tokenString)
 			if err != nil {
 				return server.ErrorResponse(c, http.StatusUnauthorized, err.Error(), "Invalid or expired token")
 			}
