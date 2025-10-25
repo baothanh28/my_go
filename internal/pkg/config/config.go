@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -58,19 +60,14 @@ func NewConfig() (*Config, error) {
 	// Set default values
 	setDefaults(v)
 
-	// Set config file name and paths
-	v.SetConfigName("config")
-	v.SetConfigType("yaml")
-	v.AddConfigPath("./config")     // Standard config directory
-	v.AddConfigPath(".")            // Current directory
-	v.AddConfigPath("../../config") // Two levels up (when running from service/*/cmd/)
-
-	// Read config file
-	if err := v.ReadInConfig(); err != nil {
-		// It's okay if config file doesn't exist, we'll use defaults and env vars
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return nil, fmt.Errorf("failed to read config file: %w", err)
-		}
+	// Merge configuration layers (lowest precedence to highest):
+	// 1) repository root config/config.yaml
+	// 2) service-local ../../config/config.yaml (when running from service/*/cmd)
+	// 3) root environment config/config.<env>.yaml
+	// 4) service environment ../../config/config.<env>.yaml
+	// 5) environment variables (highest precedence)
+	if err := mergeConfigLayers(v); err != nil {
+		return nil, err
 	}
 
 	// Enable environment variable overrides
@@ -90,6 +87,102 @@ func NewConfig() (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+// mergeConfigLayers reads and merges multiple config files in order
+func mergeConfigLayers(v *viper.Viper) error {
+	v.SetConfigType("yaml")
+
+	env := getEnvironment()
+
+	// Discover configs upward from CWD
+	baseFiles, envFiles := discoverConfigFiles(env)
+
+	var globalBase, serviceBase, globalEnv, serviceEnv string
+	if len(baseFiles) > 0 {
+		globalBase = baseFiles[0]
+		serviceBase = baseFiles[len(baseFiles)-1]
+	}
+	if len(envFiles) > 0 {
+		globalEnv = envFiles[0]
+		serviceEnv = envFiles[len(envFiles)-1]
+	}
+
+	// Load in simple order: global -> service (service overrides)
+	for _, path := range []string{globalBase, globalEnv, serviceBase, serviceEnv} {
+		if path == "" {
+			continue
+		}
+		v.SetConfigFile(path)
+		if err := v.MergeInConfig(); err != nil {
+			return fmt.Errorf("failed to merge config file %s: %w", path, err)
+		}
+	}
+
+	return nil
+}
+
+// discoverConfigFiles walks up from the working directory and returns all
+// config/config.yaml and config/config.<env>.yaml files found, ordered from
+// highest ancestor (root-most) to current directory (most specific).
+func discoverConfigFiles(env string) (baseFiles []string, envFiles []string) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil, nil
+	}
+
+	// Accumulate from CWD upward
+	var bases []string
+	var envs []string
+	dir := wd
+	for i := 0; i < 8; i++ { // search up to 8 levels which covers this repo layout
+		base := filepath.Join(dir, "config", "config.yaml")
+		envp := filepath.Join(dir, "config", "config."+env+".yaml")
+		if fileExists(base) {
+			bases = append(bases, base)
+		}
+		if fileExists(envp) {
+			envs = append(envs, envp)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+
+	// Reverse to get highest ancestor first
+	for i := len(bases) - 1; i >= 0; i-- {
+		baseFiles = append(baseFiles, bases[i])
+	}
+	for i := len(envs) - 1; i >= 0; i-- {
+		envFiles = append(envFiles, envs[i])
+	}
+	return
+}
+
+func getEnvironment() string {
+	// Prefer APP_ENV, then GO_ENV, then ENV; default to "development"
+	if v := os.Getenv("APP_ENV"); v != "" {
+		return v
+	}
+	if v := os.Getenv("GO_ENV"); v != "" {
+		return v
+	}
+	if v := os.Getenv("ENV"); v != "" {
+		return v
+	}
+	return "development"
+}
+
+func fileExists(path string) bool {
+	if path == "" {
+		return false
+	}
+	if _, err := os.Stat(path); err == nil {
+		return true
+	}
+	return false
 }
 
 // setDefaults sets default configuration values

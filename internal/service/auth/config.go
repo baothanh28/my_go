@@ -1,15 +1,13 @@
 package auth
 
-// AuthConfig holds auth service specific configuration
-type AuthConfig struct {
-	JWTSecret     string
-	JWTExpireHour int
+import "myapp/internal/pkg/config"
+
+// ServiceConfig embeds the common application config for the auth service.
+type ServiceConfig struct {
+	*config.Config
 }
 
-// NewAuthConfig creates auth config from main config
-func NewAuthConfig(secret string, expireHour int) *AuthConfig {
-	return &AuthConfig{
-		JWTSecret:     secret,
-		JWTExpireHour: expireHour,
-	}
+// NewServiceConfig constructs the auth service config from the common config.
+func NewServiceConfig(cfg *config.Config) *ServiceConfig {
+	return &ServiceConfig{Config: cfg}
 }

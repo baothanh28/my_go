@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"myapp/internal/pkg/config"
 	"myapp/internal/pkg/logger"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -16,12 +15,12 @@ import (
 // AuthService handles authentication business logic
 type AuthService struct {
 	repo   *AuthRepository
-	config *config.Config
+	config *ServiceConfig
 	logger *logger.Logger
 }
 
 // NewAuthService creates a new auth service
-func NewAuthService(repo *AuthRepository, cfg *config.Config, log *logger.Logger) *AuthService {
+func NewAuthService(repo *AuthRepository, cfg *ServiceConfig, log *logger.Logger) *AuthService {
 	return &AuthService{
 		repo:   repo,
 		config: cfg,

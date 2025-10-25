@@ -19,6 +19,7 @@ var AuthApp = fx.Options(
 
 	// Auth service components
 	fx.Provide(
+		NewServiceConfig,
 		NewAuthRepository,
 		NewAuthService,
 		NewAuthHandler,
