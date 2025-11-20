@@ -9,8 +9,19 @@ type ServiceConfig struct {
 }
 
 // NewServiceConfig constructs the service config from the common config.
-func NewServiceConfig(cfg *config.Config) *ServiceConfig {
-	return &ServiceConfig{Config: cfg}
+func NewServiceConfig(cfg *config.Config) (*ServiceConfig, error) {
+	sc := &ServiceConfig{Config: cfg}
+
+	// Unmarshal supabase-specific config
+	// Get the config manager to access raw config
+	mgr := config.GetGlobalConfigManager()
+	if mgr != nil {
+		if err := mgr.Unmarshal(sc); err != nil {
+			return nil, err
+		}
+	}
+
+	return sc, nil
 }
 
 // SupabaseConfig holds Supabase project configuration

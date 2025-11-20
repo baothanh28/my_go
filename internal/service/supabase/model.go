@@ -51,4 +51,15 @@ type UserContext struct {
 	Email  string `json:"email"`
 	Role   string `json:"role"`
 	Name   string `json:"name"`
+	// Supabase JWT specific fields (present when authenticating with a Supabase access token)
+	Sub          string         `json:"sub,omitempty"`
+	Aud          string         `json:"aud,omitempty"`
+	AppMetadata  map[string]any `json:"app_metadata,omitempty"`
+	UserMetadata map[string]any `json:"user_metadata,omitempty"`
+}
+
+// PermissionsResponse is returned by the permissions endpoint
+type PermissionsResponse struct {
+	Role        string   `json:"role"`
+	Permissions []string `json:"permissions"`
 }

@@ -20,6 +20,22 @@ services:
     networks:
       - myapp_network
 
+  redis:
+    image: redis:7-alpine
+    container_name: myapp_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - myapp_network
+
   auth:
     build:
       context: ..
@@ -44,8 +60,42 @@ services:
       - myapp_network
     restart: unless-stopped
 
+  notification:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.notification
+    container_name: notification_service
+    environment:
+      APP_SERVER_PORT: 8082
+      APP_DATABASE_HOST: postgres
+      APP_DATABASE_PORT: 5432
+      APP_DATABASE_USER: postgres
+      APP_DATABASE_PASSWORD: postgres
+      APP_DATABASE_DBNAME: myapp
+      APP_DATABASE_SSLMODE: disable
+      APP_REDIS_ADDR: redis:6379
+      APP_REDIS_PASSWORD: ""
+      APP_REDIS_DB: 0
+      APP_JWT_SECRET: your-super-secret-jwt-key-change-this-in-production
+      APP_LOGGER_LEVEL: info
+      APP_NOTIFICATION_WORKER_CONCURRENCY: 10
+      APP_NOTIFICATION_STREAM_NAME: stream:notifications
+      APP_NOTIFICATION_CONSUMER_GROUP: notifications
+      APP_NOTIFICATION_DLQ_STREAM_NAME: stream:notifications:dlq
+    ports:
+      - "8082:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - myapp_network
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+  redis_data:
 
 networks:
   myapp_network:

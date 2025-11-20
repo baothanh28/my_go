@@ -1,6 +1,7 @@
 package database
 
 import (
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -99,7 +100,13 @@ func (d *Database) Begin() *gorm.DB {
 	return d.DB.Begin()
 }
 
-// RunMigrations runs database migrations
+// RunMigrations runs database migrations (GORM AutoMigrate)
+// Deprecated: Use migration package for version-controlled migrations
 func (d *Database) RunMigrations(models ...interface{}) error {
 	return d.DB.AutoMigrate(models...)
+}
+
+// SQLDB returns the underlying *sql.DB for use with migration tools
+func (d *Database) SQLDB() (*sql.DB, error) {
+	return d.DB.DB()
 }

@@ -12,6 +12,7 @@ import (
 // App provides all supabase_login service dependencies including infrastructure
 var App = fx.Options(
 	// Infrastructure modules
+	config.WithServiceDir("internal/service/supabase"),
 	config.Module,
 	logger.Module,
 	database.Module,

@@ -1,0 +1,121 @@
+# Docker Compose file for running Notification service from pre-built image
+# 
+# IMPORTANT: Environment Variables
+# - This file uses environment variables from .env file in the same directory
+# - Docker Compose automatically reads .env file when running from the same directory
+# - If running from a different directory, use: --env-file path/to/.env
+# - Environment variables use double underscore (__) for nested config keys:
+#   - APP_DATABASE__HOST (maps to database.host)
+#   - APP_SERVER__PORT (maps to server.port)
+#   - APP_LOGGER__LEVEL (maps to logger.level)
+#
+# Usage:
+#   cd deployment
+#   docker-compose -f docker-compose.notification.run.yml --profile migrate up notification-migrate
+#   docker-compose -f docker-compose.notification.run.yml --profile api up -d
+#   docker-compose -f docker-compose.notification.run.yml --profile worker up -d
+
+services:
+  # Migration service - runs database migrations
+  notification-migrate:
+    image: ${NOTIFICATION_IMAGE:-notification-service:latest}
+    container_name: notification_migrate
+    environment:
+      # Use double underscore (__) for nested config keys (database.host, database.port, etc.)
+      APP_DATABASE__HOST: ${POSTGRES_HOST:-postgres}
+      APP_DATABASE__PORT: ${POSTGRES_PORT:-5432}
+      APP_DATABASE__USER: ${POSTGRES_USER:-postgres}
+      APP_DATABASE__PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      APP_DATABASE__DBNAME: ${POSTGRES_DB:-myapp}
+      APP_DATABASE__SSLMODE: ${POSTGRES_SSLMODE:-disable}
+      APP_LOGGER__LEVEL: ${LOGGER_LEVEL:-info}
+    command: ["./notification-service", "migrate"]
+    networks:
+      - myapp_network
+    restart: "no"  # Migration should run once and exit
+    healthcheck:
+      disable: true  # No healthcheck needed for one-time migration
+    # Note: depends_on removed - ensure postgres is running externally or add it back
+    profiles:
+      - migrate  # Only run when explicitly requested
+
+  # API-only service - runs API server without worker
+  notification-api:
+    image: ${NOTIFICATION_IMAGE:-notification-service:latest}
+    container_name: notification_api
+    environment:
+      APP_SERVER__PORT: ${NOTIFICATION_API_PORT:-8082}
+      # Use double underscore (__) for nested config keys (database.host, database.port, etc.)
+      APP_DATABASE__HOST: ${POSTGRES_HOST:-postgres}
+      APP_DATABASE__PORT: ${POSTGRES_PORT:-5432}
+      APP_DATABASE__USER: ${POSTGRES_USER:-postgres}
+      APP_DATABASE__PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      APP_DATABASE__DBNAME: ${POSTGRES_DB:-myapp}
+      APP_DATABASE__SSLMODE: ${POSTGRES_SSLMODE:-disable}
+      APP_JWT__SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-this-in-production}
+      APP_LOGGER__LEVEL: ${LOGGER_LEVEL:-info}
+      APP_NOTIFICATION_IDEMPOTENCY_TTL_DAYS: ${NOTIFICATION_IDEMPOTENCY_TTL_DAYS:-7}
+    command: ["./notification-service", "api"]
+    ports:
+      - "${NOTIFICATION_API_PORT:-8082}:${NOTIFICATION_API_PORT:-8082}"
+    networks:
+      - myapp_network
+    restart: unless-stopped
+    healthcheck:
+      # Health check for API service
+      # Checks: database connection (worker status not checked in API-only mode)
+      # Uses APP_SERVER__PORT environment variable to match the actual service port
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:${APP_SERVER__PORT:-8082}/health || exit 1"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    # Note: depends_on removed - ensure postgres and redis are running externally or add them back
+    profiles:
+      - api  # Only run when explicitly requested
+
+  # Full service - runs API server with worker
+  notification-worker:
+    image: ${NOTIFICATION_IMAGE:-notification-service:latest}
+    container_name: notification_worker
+    environment:
+      APP_SERVER__PORT: ${NOTIFICATION_WORKER_PORT:-8083}
+      # Use double underscore (__) for nested config keys (database.host, database.port, etc.)
+      APP_DATABASE__HOST: ${POSTGRES_HOST:-postgres}
+      APP_DATABASE__PORT: ${POSTGRES_PORT:-5432}
+      APP_DATABASE__USER: ${POSTGRES_USER:-postgres}
+      APP_DATABASE__PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      APP_DATABASE__DBNAME: ${POSTGRES_DB:-myapp}
+      APP_DATABASE__SSLMODE: ${POSTGRES_SSLMODE:-disable}
+      APP_JWT__SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-this-in-production}
+      APP_LOGGER__LEVEL: ${LOGGER_LEVEL:-info}
+      APP_NOTIFICATION_WORKER_CONCURRENCY: ${NOTIFICATION_WORKER_CONCURRENCY:-10}
+      APP_NOTIFICATION_STREAM_NAME: ${NOTIFICATION_STREAM_NAME:-stream:notifications}
+      APP_NOTIFICATION_CONSUMER_GROUP: ${NOTIFICATION_CONSUMER_GROUP:-notifications}
+      APP_NOTIFICATION_DLQ_STREAM_NAME: ${NOTIFICATION_DLQ_STREAM_NAME:-stream:notifications:dlq}
+      APP_NOTIFICATION_DELAYED_RETRY_ENABLED: ${NOTIFICATION_DELAYED_RETRY_ENABLED:-true}
+      APP_NOTIFICATION_DELAYED_RETRY_KEY: ${NOTIFICATION_DELAYED_RETRY_KEY:-delayed:notifications}
+      APP_NOTIFICATION_IDEMPOTENCY_TTL_DAYS: ${NOTIFICATION_IDEMPOTENCY_TTL_DAYS:-7}
+      APP_NOTIFICATION_STREAM_MAX_LEN: ${NOTIFICATION_STREAM_MAX_LEN:-100000}
+    command: ["./notification-service", "serve"]
+    ports:
+      - "${NOTIFICATION_WORKER_PORT:-8083}:${NOTIFICATION_WORKER_PORT:-8083}"
+    networks:
+      - myapp_network
+    restart: unless-stopped
+    healthcheck:
+      # Health check for worker service (includes worker status check)
+      # Checks: database connection, worker running status, queue metrics
+      # Uses APP_SERVER__PORT environment variable to match the actual service port
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:${APP_SERVER__PORT:-8083}/health || exit 1"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    # Note: depends_on removed - ensure postgres and redis are running externally or add them back
+    profiles:
+      - worker  # Only run when explicitly requested
+
+networks:
+  myapp_network:
+    external: true

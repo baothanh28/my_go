@@ -56,7 +56,6 @@ var versionCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(serveCmd)
-	rootCmd.AddCommand(migrateCmd)
 	rootCmd.AddCommand(versionCmd)
 }
 

@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  supabase-login:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.supabase
+    container_name: supabase_service
+    environment:
+      APP_SERVER_PORT: 8081
+      APP_DATABASE_HOST: ${POSTGRES_HOST}
+      APP_DATABASE_PORT: ${POSTGRES_PORT}
+      APP_DATABASE_USER: postgres
+      APP_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      APP_DATABASE_DBNAME: ${POSTGRES_DB}
+      APP_DATABASE_SSLMODE: disable
+      APP_JWT_SECRET: ${JWT_SECRET}
+      # Required for validating inbound Supabase JWTs
+      APP_SUPABASE_ANON_KEY: ${APP_SUPABASE_ANON_KEY:-replace-with-anon-key}
+      # Optional logger level
+      APP_LOGGER_LEVEL: info
+    ports:
+      - "8082:8081" # expose service on host:8082
+    networks:
+      - myapp_network
+    restart: unless-stopped
+
+networks:
+  myapp_network:
+    external: true

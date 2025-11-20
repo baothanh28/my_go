@@ -8,7 +8,6 @@ import (
 	"myapp/internal/pkg/logger"
 
 	"github.com/golang-jwt/jwt/v5"
-	"gorm.io/gorm"
 )
 
 // Service encapsulates Supabase login business logic
@@ -21,55 +20,6 @@ type Service struct {
 // NewService constructs Service
 func NewService(repo *Repository, cfg *ServiceConfig, log *logger.Logger) *Service {
 	return &Service{repo: repo, config: cfg, logger: log}
-}
-
-// ExchangeSupabaseToken validates Supabase access token and issues app JWT
-func (s *Service) ExchangeSupabaseToken(dto SupabaseLoginDTO) (*TokenResponse, error) {
-	claims, err := s.validateSupabaseJWT(dto.SupabaseAccessToken)
-	if err != nil {
-		return nil, fmt.Errorf("invalid Supabase token: %w", err)
-	}
-
-	email, _ := claims["email"].(string)
-	name, _ := claims["name"].(string)
-	if email == "" {
-		return nil, errors.New("email missing in token")
-	}
-
-	user, err := s.repo.GetByEmail(email)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			user = &User{Email: email, Name: name, Role: "user"}
-			if err := s.repo.Create(user); err != nil {
-				return nil, fmt.Errorf("failed to create user: %w", err)
-			}
-		} else {
-			return nil, fmt.Errorf("failed to fetch user: %w", err)
-		}
-	}
-
-	token, exp, err := s.generateAppJWT(user)
-	if err != nil {
-		return nil, err
-	}
-
-	return &TokenResponse{Token: token, ExpiresAt: exp, User: user.ToUserResponse()}, nil
-}
-
-// GetOrCreateUser returns a user by context or creates one if needed
-func (s *Service) GetOrCreateUser(ctx *UserContext) (*User, error) {
-	user, err := s.repo.GetByEmail(ctx.Email)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			user = &User{Email: ctx.Email, Name: ctx.Name, Role: ctx.Role}
-			if err := s.repo.Create(user); err != nil {
-				return nil, err
-			}
-		} else {
-			return nil, err
-		}
-	}
-	return user, nil
 }
 
 // validateSupabaseJWT validates a Supabase JWT with the anon key
@@ -138,4 +88,13 @@ func (s *Service) ValidateToken(tokenString string) (*UserContext, error) {
 		Name:   claims["name"].(string),
 	}
 	return ctx, nil
+}
+
+// GetUserPermissions retrieves the role and merged permissions for a given Supabase user id
+func (s *Service) GetUserPermissions(supabaseUserID string) (*PermissionsResponse, error) {
+	role, perms, err := s.repo.GetUserRoleAndPermissions(supabaseUserID)
+	if err != nil {
+		return nil, err
+	}
+	return &PermissionsResponse{Role: role, Permissions: perms}, nil
 }

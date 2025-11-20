@@ -1,0 +1,91 @@
+server:
+  host: "0.0.0.0"
+  port: 8082
+  read_timeout: 10
+  write_timeout: 10
+  shutdown_timeout: 10
+
+database:
+  host: "localhost"
+  port: 5432
+  user: "postgres"
+  password: "postgres"
+  dbname: "myapp"
+  sslmode: "disable"
+  max_open_conns: 25
+  max_idle_conns: 5
+  conn_max_lifetime: 300
+
+jwt:
+  secret: "your-super-secret-jwt-key-change-this-in-production"
+  expire_hour: 24
+
+logger:
+  level: "info"
+  format: "json"
+  output_path: "stdout,logs/notification.log"
+
+redis:
+  addr: "localhost:6379"
+  username: ""
+  password: ""
+  db: 0
+  pool_size: 10
+  min_idle_conns: 5
+  dial_timeout_sec: 5
+  read_timeout_sec: 3
+  write_timeout_sec: 3
+  tls: false
+
+notification:
+  stream_name: "stream:notifications"
+  consumer_group: "notifications"
+  dlq_stream_name: "stream:notifications:dlq"
+  worker_concurrency: 10
+  batch_size: 1
+  block_duration_sec: 1
+  max_retries: 3
+  retry_backoff_sec: 60
+  delayed_retry_enabled: true
+  delayed_retry_key: "delayed:notifications"
+  idempotency_ttl_days: 7
+  stream_max_len: 100000
+  poller:
+    enabled: true
+    poll_interval_sec: 5
+    batch_size: 1000
+    max_queue_size: 2000
+    backoff_on_empty_sec: 30
+    processing_timeout_minutes: 5
+  senders:
+    expo:
+      enabled: true
+      api_url: "https://expo.dev/notifications"
+      access_token: ""
+      timeout_sec: 30
+      max_retries: 3
+    fcm:
+      enabled: false
+      project_id: ""
+      credentials_file: ""
+      timeout_sec: 30
+      max_retries: 3
+    apns:
+      enabled: false
+      key_id: ""
+      team_id: ""
+      bundle_id: ""
+      key_file: ""
+      production: false
+      timeout_sec: 30
+      max_retries: 3
+    email:
+      enabled: false
+      smtp_host: ""
+      smtp_port: 587
+      username: ""
+      password: ""
+      from_email: ""
+      timeout_sec: 30
+      max_retries: 3
+

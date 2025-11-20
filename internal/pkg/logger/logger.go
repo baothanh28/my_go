@@ -2,6 +2,9 @@ package logger
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"myapp/internal/pkg/config"
 
@@ -38,9 +41,43 @@ func NewLogger(cfg *config.Config) (*Logger, error) {
 	}
 
 	// Create output paths
-	outputPaths := []string{cfg.Logger.OutputPath}
+	// Support multiple paths separated by comma, or single path
+	outputPaths := []string{}
 	if cfg.Logger.OutputPath == "" {
 		outputPaths = []string{"stdout"}
+	} else {
+		// Split by comma to support multiple outputs (e.g., "stdout,logs/app.log")
+		paths := strings.Split(cfg.Logger.OutputPath, ",")
+		for _, path := range paths {
+			path = strings.TrimSpace(path)
+			if path != "" && path != "stdout" && path != "stderr" {
+				// For file paths, ensure directory exists
+				dir := filepath.Dir(path)
+				if dir != "." && dir != "" {
+					if err := os.MkdirAll(dir, 0755); err != nil {
+						return nil, fmt.Errorf("failed to create log directory: %w", err)
+					}
+				}
+			}
+			outputPaths = append(outputPaths, path)
+		}
+		// If no valid paths, default to stdout
+		if len(outputPaths) == 0 {
+			outputPaths = []string{"stdout"}
+		}
+	}
+
+	// Create error output paths (errors go to stderr and error log file if file logging is enabled)
+	errorOutputPaths := []string{"stderr"}
+	for _, path := range outputPaths {
+		if path != "stdout" && path != "stderr" {
+			// Create error log file name (e.g., logs/app.log -> logs/app.error.log)
+			ext := filepath.Ext(path)
+			base := strings.TrimSuffix(path, ext)
+			errorPath := base + ".error" + ext
+			errorOutputPaths = append(errorOutputPaths, errorPath)
+			break // Only add one error log file
+		}
 	}
 
 	// Create logger config
@@ -50,7 +87,7 @@ func NewLogger(cfg *config.Config) (*Logger, error) {
 		Encoding:         cfg.Logger.Format,
 		EncoderConfig:    encoderConfig,
 		OutputPaths:      outputPaths,
-		ErrorOutputPaths: []string{"stderr"},
+		ErrorOutputPaths: errorOutputPaths,
 	}
 
 	// Build logger

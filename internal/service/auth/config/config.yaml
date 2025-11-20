@@ -23,5 +23,5 @@ jwt:
 logger:
   level: "info"
   format: "json"
-  output_path: "stdout"
+  output_path: "stdout,logs/auth.log"
 

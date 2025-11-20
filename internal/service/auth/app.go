@@ -12,6 +12,7 @@ import (
 // AuthApp provides all auth service dependencies including infrastructure
 var AuthApp = fx.Options(
 	// Infrastructure modules
+	config.WithServiceDir("internal/service/auth"),
 	config.Module,
 	logger.Module,
 	database.Module,

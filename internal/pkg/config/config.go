@@ -1,233 +1,180 @@
 package config
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
-
-	"github.com/spf13/viper"
+	"time"
 )
 
-// Config holds all configuration for the application
-type Config struct {
-	Server   ServerConfig   `mapstructure:"server"`
-	Database DatabaseConfig `mapstructure:"database"`
-	JWT      JWTConfig      `mapstructure:"jwt"`
-	Logger   LoggerConfig   `mapstructure:"logger"`
+var (
+	// globalConfig is the global config instance
+	globalConfig  *Config
+	globalManager ConfigManager
+)
+
+// NewConfig creates a new config manager with default providers
+// serviceDir should be the absolute or relative directory path of the service
+// (e.g., "internal/service/auth" or absolute path)
+func NewConfig(serviceDir string) ConfigManager {
+	// Resolve service directory to absolute path
+	var servicePath string
+	if serviceDir != "" {
+		// If it's already absolute, use it
+		if filepath.IsAbs(serviceDir) {
+			servicePath = serviceDir
+		} else {
+			// Try to resolve relative to current working directory
+			wd, err := os.Getwd()
+			if err == nil {
+				servicePath = filepath.Join(wd, serviceDir)
+			} else {
+				// Fallback: use as-is
+				servicePath = serviceDir
+			}
+		}
+	}
+
+	// Create providers in priority order (last one wins)
+	providers := []Provider{
+		NewDefaultProvider(getDefaultConfig()),
+		NewFileProvider(servicePath),
+		NewEnvProvider("APP_"),
+	}
+
+	opts := make([]Option, 0, len(providers))
+	for _, p := range providers {
+		opts = append(opts, WithProvider(p))
+	}
+
+	return New(opts...)
 }
 
-// ServerConfig holds HTTP server configuration
-type ServerConfig struct {
-	Host            string `mapstructure:"host"`
-	Port            int    `mapstructure:"port"`
-	ReadTimeout     int    `mapstructure:"read_timeout"`
-	WriteTimeout    int    `mapstructure:"write_timeout"`
-	ShutdownTimeout int    `mapstructure:"shutdown_timeout"`
+// getDefaultConfig returns default configuration values
+func getDefaultConfig() map[string]any {
+	return map[string]any{
+		"server": map[string]any{
+			"host":             "0.0.0.0",
+			"port":             8080,
+			"read_timeout":     10,
+			"write_timeout":    10,
+			"shutdown_timeout": 10,
+		},
+		"database": map[string]any{
+			"host":              "localhost",
+			"port":              5432,
+			"user":              "postgres",
+			"password":          "postgres",
+			"dbname":            "myapp",
+			"sslmode":           "disable",
+			"max_open_conns":    25,
+			"max_idle_conns":    5,
+			"conn_max_lifetime": 300,
+		},
+		"jwt": map[string]any{
+			"secret":      "your-super-secret-jwt-key-change-this-in-production",
+			"expire_hour": 24,
+		},
+		"logger": map[string]any{
+			"level":       "info",
+			"format":      "json",
+			"output_path": "stdout",
+		},
+		"redis": map[string]any{
+			"addr":              "localhost:6379",
+			"username":          "",
+			"password":          "",
+			"db":                0,
+			"pool_size":         10,
+			"min_idle_conns":    5,
+			"dial_timeout_sec":  5,
+			"read_timeout_sec":  3,
+			"write_timeout_sec": 3,
+			"tls":               false,
+		},
+	}
 }
 
-// DatabaseConfig holds database connection configuration
-type DatabaseConfig struct {
-	Host            string `mapstructure:"host"`
-	Port            int    `mapstructure:"port"`
-	User            string `mapstructure:"user"`
-	Password        string `mapstructure:"password"`
-	DBName          string `mapstructure:"dbname"`
-	SSLMode         string `mapstructure:"sslmode"`
-	MaxOpenConns    int    `mapstructure:"max_open_conns"`
-	MaxIdleConns    int    `mapstructure:"max_idle_conns"`
-	ConnMaxLifetime int    `mapstructure:"conn_max_lifetime"`
-}
+// LoadGlobalConfig loads the global config instance
+// This should be called once at application startup
+func LoadGlobalConfig(serviceDir string) (*Config, error) {
+	if globalManager == nil {
+		globalManager = NewConfig(serviceDir)
+	}
 
-// JWTConfig holds JWT configuration
-type JWTConfig struct {
-	Secret     string `mapstructure:"secret"`
-	ExpireHour int    `mapstructure:"expire_hour"`
-}
-
-// LoggerConfig holds logger configuration
-type LoggerConfig struct {
-	Level      string `mapstructure:"level"`
-	Format     string `mapstructure:"format"`
-	OutputPath string `mapstructure:"output_path"`
-}
-
-// NewConfig creates and returns a new Config instance
-// It loads configuration from file, environment variables, and defaults
-func NewConfig() (*Config, error) {
-	v := viper.New()
-
-	// Set default values
-	setDefaults(v)
-
-	// Merge configuration layers (lowest precedence to highest):
-	// 1) repository root config/config.yaml
-	// 2) service-local ../../config/config.yaml (when running from service/*/cmd)
-	// 3) root environment config/config.<env>.yaml
-	// 4) service environment ../../config/config.<env>.yaml
-	// 5) environment variables (highest precedence)
-	if err := mergeConfigLayers(v); err != nil {
+	if err := globalManager.Load(); err != nil {
 		return nil, err
 	}
 
-	// Enable environment variable overrides
-	v.AutomaticEnv()
-	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	v.SetEnvPrefix("APP")
-
-	// Unmarshal config into struct
-	var config Config
-	if err := v.Unmarshal(&config); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+	// Get the config struct
+	if mgr, ok := globalManager.(*manager); ok {
+		globalConfig = mgr.GetConfig()
+		return globalConfig, nil
 	}
 
-	// Validate config
-	if err := validateConfig(&config); err != nil {
-		return nil, fmt.Errorf("invalid configuration: %w", err)
+	// Fallback: unmarshal manually
+	var cfg Config
+	if err := globalManager.Unmarshal(&cfg); err != nil {
+		return nil, err
 	}
-
-	return &config, nil
+	globalConfig = &cfg
+	return globalConfig, nil
 }
 
-// mergeConfigLayers reads and merges multiple config files in order
-func mergeConfigLayers(v *viper.Viper) error {
-	v.SetConfigType("yaml")
-
-	env := getEnvironment()
-
-	// Discover configs upward from CWD
-	baseFiles, envFiles := discoverConfigFiles(env)
-
-	var globalBase, serviceBase, globalEnv, serviceEnv string
-	if len(baseFiles) > 0 {
-		globalBase = baseFiles[0]
-		serviceBase = baseFiles[len(baseFiles)-1]
-	}
-	if len(envFiles) > 0 {
-		globalEnv = envFiles[0]
-		serviceEnv = envFiles[len(envFiles)-1]
-	}
-
-	// Load in simple order: global -> service (service overrides)
-	for _, path := range []string{globalBase, globalEnv, serviceBase, serviceEnv} {
-		if path == "" {
-			continue
-		}
-		v.SetConfigFile(path)
-		if err := v.MergeInConfig(); err != nil {
-			return fmt.Errorf("failed to merge config file %s: %w", path, err)
-		}
-	}
-
-	return nil
+// GetGlobalConfig returns the global config instance
+// Returns nil if LoadGlobalConfig hasn't been called yet
+func GetGlobalConfig() *Config {
+	return globalConfig
 }
 
-// discoverConfigFiles walks up from the working directory and returns all
-// config/config.yaml and config/config.<env>.yaml files found, ordered from
-// highest ancestor (root-most) to current directory (most specific).
-func discoverConfigFiles(env string) (baseFiles []string, envFiles []string) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, nil
-	}
-
-	// Accumulate from CWD upward
-	var bases []string
-	var envs []string
-	dir := wd
-	for i := 0; i < 8; i++ { // search up to 8 levels which covers this repo layout
-		base := filepath.Join(dir, "config", "config.yaml")
-		envp := filepath.Join(dir, "config", "config."+env+".yaml")
-		if fileExists(base) {
-			bases = append(bases, base)
-		}
-		if fileExists(envp) {
-			envs = append(envs, envp)
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-
-	// Reverse to get highest ancestor first
-	for i := len(bases) - 1; i >= 0; i-- {
-		baseFiles = append(baseFiles, bases[i])
-	}
-	for i := len(envs) - 1; i >= 0; i-- {
-		envFiles = append(envFiles, envs[i])
-	}
-	return
+// GetGlobalConfigManager returns the global config manager instance
+// Returns nil if LoadGlobalConfig hasn't been called yet
+func GetGlobalConfigManager() ConfigManager {
+	return globalManager
 }
 
-func getEnvironment() string {
-	// Prefer APP_ENV, then GO_ENV, then ENV; default to "development"
-	if v := os.Getenv("APP_ENV"); v != "" {
+// Helper functions for easy access
+// GetString retrieves a string value by key
+func GetString(key string) string {
+	if globalManager == nil {
+		return ""
+	}
+	val := globalManager.Get(key)
+	if str, ok := val.(string); ok {
+		return str
+	}
+	return ""
+}
+
+// GetInt retrieves an int value by key
+func GetInt(key string) int {
+	if globalManager == nil {
+		return 0
+	}
+	val := globalManager.Get(key)
+	switch v := val.(type) {
+	case int:
 		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
 	}
-	if v := os.Getenv("GO_ENV"); v != "" {
-		return v
-	}
-	if v := os.Getenv("ENV"); v != "" {
-		return v
-	}
-	return "development"
+	return 0
 }
 
-func fileExists(path string) bool {
-	if path == "" {
-		return false
+// GetDuration retrieves a duration value by key
+func GetDuration(key string) time.Duration {
+	if globalManager == nil {
+		return 0
 	}
-	if _, err := os.Stat(path); err == nil {
-		return true
+	val := globalManager.Get(key)
+	if dur, ok := val.(time.Duration); ok {
+		return dur
 	}
-	return false
-}
-
-// setDefaults sets default configuration values
-func setDefaults(v *viper.Viper) {
-	// Server defaults
-	v.SetDefault("server.host", "0.0.0.0")
-	v.SetDefault("server.port", 8080)
-	v.SetDefault("server.read_timeout", 10)
-	v.SetDefault("server.write_timeout", 10)
-	v.SetDefault("server.shutdown_timeout", 10)
-
-	// Database defaults
-	v.SetDefault("database.host", "localhost")
-	v.SetDefault("database.port", 5432)
-	v.SetDefault("database.user", "postgres")
-	v.SetDefault("database.password", "postgres")
-	v.SetDefault("database.dbname", "myapp")
-	v.SetDefault("database.sslmode", "disable")
-	v.SetDefault("database.max_open_conns", 25)
-	v.SetDefault("database.max_idle_conns", 5)
-	v.SetDefault("database.conn_max_lifetime", 300)
-
-	// JWT defaults
-	v.SetDefault("jwt.secret", "your-secret-key-change-this")
-	v.SetDefault("jwt.expire_hour", 24)
-
-	// Logger defaults
-	v.SetDefault("logger.level", "info")
-	v.SetDefault("logger.format", "json")
-	v.SetDefault("logger.output_path", "stdout")
-}
-
-// validateConfig validates the configuration
-func validateConfig(cfg *Config) error {
-	if cfg.Server.Port <= 0 || cfg.Server.Port > 65535 {
-		return fmt.Errorf("invalid server port: %d", cfg.Server.Port)
+	if str, ok := val.(string); ok {
+		if dur, err := time.ParseDuration(str); err == nil {
+			return dur
+		}
 	}
-
-	if cfg.Database.Port <= 0 || cfg.Database.Port > 65535 {
-		return fmt.Errorf("invalid database port: %d", cfg.Database.Port)
-	}
-
-	if cfg.Database.DBName == "" {
-		return fmt.Errorf("database name is required")
-	}
-
-	return nil
+	return 0
 }

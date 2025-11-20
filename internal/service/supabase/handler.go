@@ -20,34 +20,30 @@ func NewHandler(service *Service, log *logger.Logger) *Handler {
 	return &Handler{service: service, logger: log}
 }
 
-// LoginWithSupabase exchanges a Supabase session JWT for an app JWT
-func (h *Handler) LoginWithSupabase(c echo.Context) error {
-	var dto SupabaseLoginDTO
-	if err := c.Bind(&dto); err != nil {
-		return server.ErrorResponse(c, http.StatusBadRequest, err.Error(), "Invalid request body")
-	}
-	if dto.SupabaseAccessToken == "" {
-		return server.ErrorResponse(c, http.StatusBadRequest, nil, "supabase_access_token is required")
-	}
-
-	tokenResponse, err := h.service.ExchangeSupabaseToken(dto)
-	if err != nil {
-		h.logger.Error("Supabase login failed")
-		return server.ErrorResponse(c, http.StatusUnauthorized, err.Error(), "Login failed")
-	}
-	return server.SuccessResponse(c, http.StatusOK, tokenResponse, "Login successful")
-}
-
-// GetProfile returns the authenticated user's profile
-func (h *Handler) GetProfile(c echo.Context) error {
+// GetUserPermissions returns role and permissions for the authenticated Supabase user
+func (h *Handler) GetUserPermissions(c echo.Context) error {
 	userCtx, err := GetUserFromContext(c)
 	if err != nil {
 		return server.ErrorResponse(c, http.StatusUnauthorized, err.Error(), "Unauthorized")
 	}
-	user, err := h.service.GetOrCreateUser(userCtx)
-	if err != nil {
-		h.logger.Error("Failed to get user profile")
-		return server.ErrorResponse(c, http.StatusNotFound, err.Error(), "User not found")
+
+	// Expect Supabase flow to populate Sub as the Supabase user id
+	if userCtx.Sub == "" {
+		return server.ErrorResponse(c, http.StatusBadRequest, nil, "Supabase user id (sub) is required")
 	}
-	return server.SuccessResponse(c, http.StatusOK, user.ToUserResponse(), "Profile retrieved successfully")
+
+	resp, err := h.service.GetUserPermissions(userCtx.Sub)
+	if err != nil {
+		h.logger.Error("Failed to get user permissions")
+		return server.ErrorResponse(c, http.StatusInternalServerError, err.Error(), "Failed to fetch permissions")
+	}
+	return server.SuccessResponse(c, http.StatusOK, resp, "Permissions retrieved successfully")
+}
+
+// Health returns a simple health status for the Supabase service
+func (h *Handler) Health(c echo.Context) error {
+	return server.SuccessResponse(c, http.StatusOK, map[string]string{
+		"status":  "ok",
+		"service": "supabase",
+	}, "Supabase service healthy")
 }
